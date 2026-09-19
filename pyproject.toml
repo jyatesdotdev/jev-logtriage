@@ -25,7 +25,10 @@ Documentation = "https://docs.typesafe.ai/patterns"
 Source = "https://github.com/jyatesdotdev/jev-logtriage"
 
 [project.scripts]
-logtriage = "logtriage:main"
+logtriage = "logtriage.cli:main"
 
-[tool.setuptools]
-py-modules = ["logtriage"]
+[tool.setuptools.packages.find]
+include = ["logtriage"]
+
+[tool.setuptools.package-data]
+logtriage = ["fixtures/*.json"]

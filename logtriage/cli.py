@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""logtriage.py - pull logs from Loki, ask jev what matters, decide whether to act.
+"""logtriage - pull logs from Loki, ask jev what matters, decide whether to act.
 
 Pipeline
 --------
@@ -18,8 +18,8 @@ separate, deliberate executor can act on it later.
 
 Usage
 -----
-    python logtriage.py --demo
-    python logtriage.py --since 30m --errors-only   # Loki at localhost:3100
+    uv run logtriage --demo
+    uv run logtriage --since 30m --errors-only   # Loki at localhost:3100
 
 Docs: https://docs.typesafe.ai/patterns
 """
@@ -36,7 +36,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -796,10 +796,20 @@ def demo_fixture_path() -> Path:
     return Path(__file__).resolve().parent / "fixtures" / "demo.json"
 
 
+def _demo_fixture_text(path: Path | None = None) -> str:
+    if path is not None:
+        return Path(path).read_text(encoding="utf-8")
+    try:
+        from importlib.resources import files
+
+        return (files("logtriage") / "fixtures" / "demo.json").read_text(encoding="utf-8")
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return demo_fixture_path().read_text(encoding="utf-8")
+
+
 def load_demo_streams(path: Path | None = None) -> list[dict[str, Any]]:
     """Load bundled fixtures as Loki-shaped streams. Timestamps are filled at load."""
-    fixture = path or demo_fixture_path()
-    payload = json.loads(fixture.read_text(encoding="utf-8"))
+    payload = json.loads(_demo_fixture_text(path))
     now_ns = int(datetime.now(timezone.utc).timestamp() * 1e9)
     streams: list[dict[str, Any]] = []
     for item in payload.get("streams") or []:
@@ -813,7 +823,7 @@ def load_demo_streams(path: Path | None = None) -> list[dict[str, Any]]:
             values.append([str(ts_ns), str(line)])
         streams.append({"stream": dict(item.get("stream") or {}), "values": values})
     if not streams:
-        raise LokiError(f"demo fixture is empty: {fixture}")
+        raise LokiError(f"demo fixture is empty: {path or demo_fixture_path()}")
     return streams
 
 
