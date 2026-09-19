@@ -1,0 +1,93 @@
+{
+  "streams": [
+    {
+      "stream": {
+        "namespace": "kube-system",
+        "app": "coredns",
+        "container": "coredns",
+        "detected_level": "warn"
+      },
+      "lines": [
+        "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server",
+        "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server",
+        "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server",
+        "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server",
+        "[WARNING] plugin/kubernetes: failed to list *v1.Namespace: Get \"https://10.43.0.1:443/api/v1/namespaces\": context canceled",
+        "[WARNING] No files matching import glob pattern: /etc/coredns/custom/*.server"
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "services",
+        "app": "news-linker",
+        "container": "news-linker",
+        "detected_level": "warn"
+      },
+      "lines": [
+        "2026-09-19 22:07:03,047 - news_linker - WARNING - rss: skipping feed https://marginalrevolution.com/feed: Redirect response '304 Not Modified'",
+        "2026-09-19 22:07:03,148 - news_linker - WARNING - rss: skipping feed https://physicsworld.com/feed/: Redirect response '304 Not Modified'",
+        "2026-09-19 22:07:03,259 - news_linker - WARNING - rss: skipping feed https://rss.arxiv.org/rss/physics: Redirect response '304 Not Modified'",
+        "2026-09-19 22:07:03,360 - news_linker - WARNING - rss: skipping feed https://www.economist.com/finance-and-economics/rss.xml: Redirect response '304 Not Modified'"
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "monitoring",
+        "app": "kube-state-metrics",
+        "container": "kube-state-metrics",
+        "detected_level": "warn"
+      },
+      "lines": [
+        "W0919 21:59:55.391047       1 warnings.go:70] v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice",
+        "W0919 22:04:55.401112       1 warnings.go:70] v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice"
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "services",
+        "app": "authentik",
+        "container": "authentik",
+        "detected_level": "warn"
+      },
+      "lines": [
+        "{\"event\":\"No providers assigned to this outpost, check outpost configuration in authentik\",\"level\":\"warning\",\"logger\":\"authentik.outpost.proc\"}",
+        "{\"event\":\"No providers assigned to this outpost, check outpost configuration in authentik\",\"level\":\"warning\",\"logger\":\"authentik.outpost.proc\"}"
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "monitoring",
+        "app": "alertmanager",
+        "container": "alertmanager",
+        "detected_level": "error"
+      },
+      "lines": [
+        "time=2026-09-19T22:05:49.142Z level=ERROR source=dispatch.go:360 msg=\"Notify for alerts failed\" component=dispatcher num_alerts=27 err=\"ntfy/http: 503 service unavailable\"",
+        "time=2026-09-19T22:06:19.201Z level=ERROR source=dispatch.go:360 msg=\"Notify for alerts failed\" component=dispatcher num_alerts=27 err=\"ntfy/http: 503 service unavailable\""
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "flux-system",
+        "app": "helm-controller",
+        "container": "manager",
+        "detected_level": "error"
+      },
+      "lines": [
+        "{\"level\":\"error\",\"ts\":\"2026-09-19T21:58:18.286Z\",\"msg\":\"Reconciler error\",\"controller\":\"helmrelease\",\"controllerGroup\":\"helm.toolkit.fluxcd.io\",\"name\":\"loki\",\"namespace\":\"monitoring\",\"error\":\"context deadline exceeded\"}",
+        "{\"level\":\"error\",\"ts\":\"2026-09-19T22:03:18.401Z\",\"msg\":\"Reconciler error\",\"controller\":\"helmrelease\",\"controllerGroup\":\"helm.toolkit.fluxcd.io\",\"name\":\"loki\",\"namespace\":\"monitoring\",\"error\":\"context deadline exceeded\"}"
+      ]
+    },
+    {
+      "stream": {
+        "namespace": "services",
+        "app": "forgejo-runner",
+        "container": "runner",
+        "detected_level": "error"
+      },
+      "lines": [
+        "time=\"2026-09-19T21:45:59Z\" level=error msg=\"failed to validate image signature\" error=\"resolving signature chain for image sha256:deadbeef: no matching signatures\""
+      ]
+    }
+  ]
+}

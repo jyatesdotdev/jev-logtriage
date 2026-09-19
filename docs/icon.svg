@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="jev-logtriage">
+  <rect width="256" height="256" rx="36" fill="#120814"/>
+  <rect x="16" y="16" width="224" height="224" rx="28" fill="none" stroke="#e551ba" stroke-opacity="0.4" stroke-width="3"/>
+
+  <!-- quiet lines -->
+  <rect x="40" y="52" width="176" height="20" rx="5" fill="#2b1c33"/>
+  <rect x="40" y="52" width="10" height="20" rx="5" fill="#56445f"/>
+  <rect x="40" y="82" width="132" height="20" rx="5" fill="#2b1c33"/>
+  <rect x="40" y="82" width="10" height="20" rx="5" fill="#56445f"/>
+
+  <!-- the line that gets through -->
+  <rect x="40" y="112" width="176" height="36" rx="7" fill="#e551ba"/>
+  <circle cx="58" cy="130" r="7" fill="#120814"/>
+  <rect x="74" y="122" width="124" height="7" rx="3.5" fill="#120814" fill-opacity="0.38"/>
+  <rect x="74" y="134" width="88" height="7" rx="3.5" fill="#120814" fill-opacity="0.38"/>
+
+  <rect x="40" y="158" width="108" height="20" rx="5" fill="#2b1c33"/>
+  <rect x="40" y="158" width="10" height="20" rx="5" fill="#56445f"/>
+  <rect x="40" y="188" width="156" height="20" rx="5" fill="#2b1c33"/>
+  <rect x="40" y="188" width="10" height="20" rx="5" fill="#56445f"/>
+
+  <!-- ticket punch -->
+  <circle cx="204" cy="204" r="22" fill="#120814"/>
+  <circle cx="204" cy="204" r="14" fill="none" stroke="#f3c6ea" stroke-width="4"/>
+  <circle cx="204" cy="204" r="5" fill="#f3c6ea"/>
+</svg>
