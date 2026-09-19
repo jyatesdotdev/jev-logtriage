@@ -26,10 +26,19 @@ Prometheus is good at conditions you already know how to write in PromQL. This i
 
 ## Try it
 
-Needs Python 3.10+ and a [TypeSafe API key](https://console.typesafe.ai/settings/keys). Loki is not required.
+Needs [uv](https://docs.astral.sh/uv/) and a [TypeSafe API key](https://console.typesafe.ai/settings/keys). Loki is not required.
 
 ```bash
-pip install typesafe-sdk
+export TYPESAFE_API_KEY=apikey_...
+uv run logtriage --demo
+```
+
+`uv run` creates `.venv`, installs `uv.lock`, and runs the script. Python 3.10+ is enough.
+
+Without uv:
+
+```bash
+pip install -r requirements.txt
 export TYPESAFE_API_KEY=apikey_...
 python logtriage.py --demo
 ```
@@ -100,7 +109,7 @@ There is no memory across runs. The same coredns glob warning will be classified
 `--fail-on page` exits 2 if any batch was paged, which is enough to hang off a CI job or a wrapper.
 
 ```bash
-python -m unittest discover -s tests -t . -v
+uv run python -m unittest discover -s tests -t . -v
 ```
 
 ## License
