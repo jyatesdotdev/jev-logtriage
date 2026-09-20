@@ -75,6 +75,15 @@ A new pattern on that source changes `state_hash` and misses. That is correct. J
 
 Stderr can show `cache hit 5  miss 2` so a too-strict key is obvious.
 
+## Bench
+
+`scripts/bench-cache.sh` runs `--demo` three times against a temp SQLite file: empty cache, warm cache, then `--no-cache`. Watch wall time and `tokens_in` / `cache hit` on stderr. Cold and no-cache each call Jev once per fixture batch. Warm should be hits only and near-zero tokens.
+
+```bash
+export TYPESAFE_API_KEY=apikey_...
+scripts/bench-cache.sh
+```
+
 ## Out of scope
 
 - Per-line rows. Wrong grain.
