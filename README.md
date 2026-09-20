@@ -118,6 +118,8 @@ There is no memory across runs. The same coredns glob warning will be classified
 
 `--fail-on page` exits 2 if any batch was paged, which is enough to hang off a CI job or a wrapper.
 
+Tests sit next to the module they pin down (`tests/test_batch.py`, `test_decide.py`, `test_loki.py`, `test_cli.py`). Pull requests run them on 3.10 and 3.12.
+
 ```bash
 uv run python -m unittest discover -s tests -t . -v
 ```
