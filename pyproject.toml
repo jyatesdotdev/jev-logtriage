@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jev-logtriage"
-version = "0.1.0"
+version = "0.2.0"
 description = "Jev decides whether a batch of logs is worth acting on"
 readme = "README.md"
 requires-python = ">=3.10"

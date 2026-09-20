@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 DEFAULT_LOKI_URL = "http://127.0.0.1:3100"
 DEFAULT_MODEL = "jev-latest"
 
