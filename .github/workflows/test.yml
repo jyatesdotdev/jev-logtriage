@@ -22,3 +22,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv run python -m unittest discover -s tests -t . -v
+      - run: uv run pycodestyle logtriage tests

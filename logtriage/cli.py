@@ -21,14 +21,8 @@ from logtriage.cache import (
     sha256_json,
 )
 from logtriage.config import DEFAULT_LOKI_URL, DEFAULT_MODEL, VERSION, Config
-from logtriage.decide import (
-    SDK_AVAILABLE,
-    Decision,
-    _to_jsonable,
-    build_questions,
-    decide,
-    empty_error_decision,
-)
+from logtriage.decide import SDK_AVAILABLE, Decision, build_questions, decide, empty_error_decision
+from logtriage.serialize import to_jsonable
 from logtriage.loki import LokiClient, LokiError, LokiPortForward, build_selector
 from logtriage.report import build_report, emit_report
 
@@ -243,7 +237,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             lookup = cfg.cache
 
         if cfg.print_questions:
-            print(json.dumps(_to_jsonable(build_questions()), indent=2))
+            print(json.dumps(to_jsonable(build_questions()), indent=2))
             return 0
 
         if cfg.list_sources:
@@ -320,17 +314,17 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             try:
                 answers = None
                 state_hash = ""
-                if lookup and cache is not None:
+                if cache is not None and lookup:
                     state_hash = sha256_json(canonical_state(batch))
                     answers = cache.get(cfg.model, schema_hash, state_hash)
                 if answers is None:
                     response = ts_client.system_one(state=state, questions=questions)
                     answers = dict(response.answers)
-                    usage = _to_jsonable(getattr(response, "usage", None)) or {}
+                    usage = to_jsonable(getattr(response, "usage", None)) or {}
                     for key, value in (usage.items() if isinstance(usage, Mapping) else []):
                         if isinstance(value, (int, float)):
                             usage_totals[str(key)] += int(value)
-                    if lookup and cache is not None:
+                    if cache is not None and lookup:
                         cache.put(cfg.model, schema_hash, state_hash, answers)
                 decisions.append(decide(batch, answers, state, cfg))
             except Exception as exc:  # noqa: BLE001 - report, don't lose the batch

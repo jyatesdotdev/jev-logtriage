@@ -255,7 +255,6 @@ def ns_to_iso(ts_ns: int) -> str:
     return datetime.fromtimestamp(ts_ns / 1e9, tz=timezone.utc).isoformat(timespec="seconds")
 
 
-
 def demo_fixture_path() -> Path:
     return Path(__file__).resolve().parent / "fixtures" / "demo.json"
 

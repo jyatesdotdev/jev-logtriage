@@ -13,9 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from logtriage.config import Config
 
-# ---------------------------------------------------------------------------
-# Loki client (stdlib only)
-# ---------------------------------------------------------------------------
+
 class LokiError(RuntimeError):
     pass
 
@@ -136,7 +134,6 @@ class LokiPortForward:
                 self.process.kill()
 
 
-
 def build_selector(cfg: Config) -> str:
     if cfg.query:
         return cfg.query
@@ -165,4 +162,3 @@ def regex_alternation(values: Sequence[str]) -> str:
     if not escaped:
         return ".+"
     return "|".join(escaped)
-

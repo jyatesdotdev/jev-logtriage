@@ -32,3 +32,8 @@ include = ["logtriage"]
 
 [tool.setuptools.package-data]
 logtriage = ["fixtures/*.json"]
+
+[dependency-groups]
+dev = [
+    "pycodestyle>=2.14.0",
+]

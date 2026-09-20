@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from logtriage.batch import Batch
-from logtriage.decide import _to_jsonable
+from logtriage.serialize import to_jsonable
 
 
 def default_cache_path() -> Path:
@@ -52,7 +52,7 @@ def canonical_state(batch: Batch) -> dict[str, Any]:
 
 
 def canonical_questions(questions: Mapping[str, Any]) -> dict[str, Any]:
-    return {key: _to_jsonable(questions[key]) for key in sorted(questions)}
+    return {key: to_jsonable(questions[key]) for key in sorted(questions)}
 
 
 def sha256_json(value: Any) -> str:
@@ -88,6 +88,12 @@ class AnswerCache:
         self.hits = 0
         self.misses = 0
 
+    def __enter__(self) -> AnswerCache:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def get(self, model: str, schema_hash: str, state_hash: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "SELECT answers FROM answers WHERE model = ? AND schema_hash = ? AND state_hash = ?",
@@ -111,7 +117,7 @@ class AnswerCache:
             INSERT OR REPLACE INTO answers (model, schema_hash, state_hash, answers, seen_at)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (model, schema_hash, state_hash, json.dumps(_to_jsonable(answers)), _now()),
+            (model, schema_hash, state_hash, json.dumps(to_jsonable(answers)), _now()),
         )
         self.conn.commit()
 

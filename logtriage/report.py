@@ -13,7 +13,8 @@ from typing import Any, Mapping, Sequence
 
 from logtriage.batch import Batch, ns_to_iso
 from logtriage.config import DECISION_RANK, DECISIONS, VERSION, Config
-from logtriage.decide import Decision, _to_jsonable
+from logtriage.decide import Decision
+from logtriage.serialize import to_jsonable
 
 _COLORS = {
     "suppress": "\033[2m",
@@ -104,7 +105,7 @@ def build_report(
             "decisions": dict(Counter(d.decision for d in decisions)),
             "usage": dict(usage_totals),
         },
-        "decisions": [_to_jsonable(asdict(d)) for d in decisions],
+        "decisions": [to_jsonable(asdict(d)) for d in decisions],
         "errors": list(errors),
     }
 

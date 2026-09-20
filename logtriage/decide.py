@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from logtriage.batch import Batch
 from logtriage.config import SAFE_AUTO_CATEGORIES, Config
+from logtriage.serialize import to_jsonable
 
 try:  # pragma: no cover
     from typesafe_sdk import Choice, Noul, Score
@@ -228,24 +229,9 @@ def decide(batch: Batch, answers: Mapping[str, Any], state: dict[str, Any], cfg:
         auto_remediable=auto_remediable,
         rationale=rationale,
         labels=batch.labels,
-        answers={k: _to_jsonable(v) for k, v in answers.items()},
+        answers={k: to_jsonable(v) for k, v in answers.items()},
         state=state,
     )
-
-
-def _to_jsonable(value: Any) -> Any:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, Mapping):
-        return {str(k): _to_jsonable(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_jsonable(v) for v in value]
-    dump = getattr(value, "model_dump", None)
-    if callable(dump):
-        return _to_jsonable(dump())
-    if hasattr(value, "__dataclass_fields__"):
-        return _to_jsonable(asdict(value))
-    return str(value)
 
 
 def empty_error_decision(batch: Batch, state: dict[str, Any], message: str) -> Decision:
