@@ -28,6 +28,13 @@ Prometheus is good at conditions you already know how to write in PromQL. This i
 
 Needs [uv](https://docs.astral.sh/uv/) and a [TypeSafe API key](https://console.typesafe.ai/settings/keys). Loki is not required.
 
+No clone:
+
+```bash
+export TYPESAFE_API_KEY=apikey_...
+uvx --from jev-logtriage logtriage --demo
+```
+
 From this repo:
 
 ```bash
@@ -35,21 +42,14 @@ export TYPESAFE_API_KEY=apikey_...
 uv run logtriage --demo
 ```
 
-Without cloning:
-
-```bash
-export TYPESAFE_API_KEY=apikey_...
-uvx --from git+https://github.com/jyatesdotdev/jev-logtriage logtriage --demo
-```
-
 `uv run` creates `.venv`, installs `uv.lock`, and runs the script. Python 3.10+ is enough.
 
 Without uv:
 
 ```bash
-pip install -r requirements.txt
+pip install jev-logtriage
 export TYPESAFE_API_KEY=apikey_...
-python -m logtriage --demo
+logtriage --demo
 ```
 
 `--demo` loads bundled fixtures (`logtriage/fixtures/demo.json`), a sanitized hour of homelab warn/error lines, and runs the same pipeline a Loki query would.
