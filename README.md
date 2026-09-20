@@ -114,7 +114,7 @@ A JSON report is written to `reports/triage-<timestamp>.json` unless you pass `-
 
 ## Limits
 
-There is no memory across runs. The same coredns glob warning will be classified every time you invoke the script. Do not cron this until you add a fingerprint. That is intentional for v0.
+There is no memory across runs yet. The same coredns glob warning will be classified every time you invoke the script. The planned answer cache is in [docs/cache.md](docs/cache.md).
 
 `--fail-on page` exits 2 if any batch was paged, which is enough to hang off a CI job or a wrapper.
 
