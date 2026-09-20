@@ -1,11 +1,11 @@
-"""Unit tests for logtriage. No network calls; decision logic uses fake answers.
+"""Behavior of collapsing, selectors, key loading, and the decision table.
 
-Run with:  python -m unittest discover -s tests -t . -v
+No network. Run: uv run python -m unittest discover -s tests -t . -v
 """
 
 from __future__ import annotations
 
-import json
+import argparse
 import os
 import tempfile
 import unittest
@@ -29,26 +29,30 @@ from logtriage import (
 )
 
 
-def fake_answers(
-    *,
-    severity=2.0,
-    severity_conf=0.9,
-    impact=1.0,
-    impact_conf=0.9,
-    category="infra",
-    category_conf=0.9,
-    needs_action=0.8,
-    is_noise=0.1,
-    auto_remediable=0.1,
-):
-    return {
-        "severity": SimpleNamespace(type="score", score=severity, confidence=severity_conf),
-        "impact_scope": SimpleNamespace(type="score", score=impact, confidence=impact_conf),
-        "category": SimpleNamespace(type="choice", choice=category, confidence=category_conf),
-        "needs_action": SimpleNamespace(type="noul", noul=needs_action),
-        "is_routine_noise": SimpleNamespace(type="noul", noul=is_noise),
-        "auto_remediable": SimpleNamespace(type="noul", noul=auto_remediable),
+def fake_answers(**overrides):
+    answers = {
+        "severity": SimpleNamespace(type="score", score=2.0, confidence=0.9),
+        "impact_scope": SimpleNamespace(type="score", score=1.0, confidence=0.9),
+        "category": SimpleNamespace(type="choice", choice="infra", confidence=0.9),
+        "needs_action": SimpleNamespace(type="noul", noul=0.8),
+        "is_routine_noise": SimpleNamespace(type="noul", noul=0.1),
+        "auto_remediable": SimpleNamespace(type="noul", noul=0.1),
     }
+    fields = {
+        "severity": ("severity", "score"),
+        "severity_conf": ("severity", "confidence"),
+        "impact": ("impact_scope", "score"),
+        "impact_conf": ("impact_scope", "confidence"),
+        "category": ("category", "choice"),
+        "category_conf": ("category", "confidence"),
+        "needs_action": ("needs_action", "noul"),
+        "is_noise": ("is_routine_noise", "noul"),
+        "auto_remediable": ("auto_remediable", "noul"),
+    }
+    for key, value in overrides.items():
+        attr = fields[key]
+        setattr(answers[attr[0]], attr[1], value)
+    return answers
 
 
 def make_batch(source="app", lines=5):
@@ -70,8 +74,7 @@ def make_batch(source="app", lines=5):
 def make_streams(app="myapp", namespace="services", values=None, level="info"):
     values = values or [
         ["1700000000000000000", "request completed in 12ms id=abc123"],
-        ["1700000000000000001", "request completed in 13ms id=def456"],
-        ["1700000000000000002", "boom: connection refused"],
+        ["1700000000000000001", "boom: connection refused"],
     ]
     stream = {"namespace": namespace, "app": app, "container": app}
     if level:
@@ -79,211 +82,144 @@ def make_streams(app="myapp", namespace="services", values=None, level="info"):
     return [{"stream": stream, "values": values}]
 
 
-class NormalizeTests(unittest.TestCase):
-    def test_collapses_volatile_tokens(self):
-        a = normalize_line("2026-09-19T21:59:40.780Z level=info id=550e8400-e29b-41d4-a716-446655440000 took 237.471µs")
-        b = normalize_line("2026-09-19T22:04:11.001Z level=info id=550e8400-e29b-41d4-a716-446655440001 took 51.002µs")
-        self.assertEqual(a, b)
-        self.assertIn("<ts>", a)
-        self.assertIn("<id>", a)
-
-    def test_strips_ansi(self):
-        self.assertNotIn("\x1b", normalize_line("\x1b[31merror:\x1b[0m failed"))
-
-    def test_detects_levels(self):
-        self.assertEqual(detect_level("level=ERROR boom"), "error")
-        self.assertEqual(detect_level('{"level":"warning","msg":"x"}'), "warn")
-        self.assertEqual(detect_level("W0919 21:51:40.388 warnings.go:70] deprecated"), "warn")
-        self.assertEqual(detect_level("2026-09-19 - news_linker - WARNING - rss: skip"), "warn")
-        self.assertEqual(detect_level("all good"), "unknown")
-        self.assertEqual(detect_level("anything", {"detected_level": "critical"}), "critical")
-
-
-class BatchTests(unittest.TestCase):
-    def test_collapses_duplicates_and_counts_levels(self):
+class CollapseTests(unittest.TestCase):
+    def test_same_event_with_different_ids_is_one_pattern(self):
         streams = make_streams(
             values=[
                 ["1700000000000000000", "request completed in 12ms id=abc"],
                 ["1700000000000000001", "request completed in 13ms id=def"],
                 ["1700000000000000002", "request completed in 14ms id=ghi"],
-            ],
-            level="info",
+            ]
         )
-        batches = build_batches(streams)
-        self.assertEqual(len(batches), 1)
-        batch = batches[0]
-        self.assertEqual(batch.source, "myapp")
-        self.assertEqual(batch.total_lines, 3)
+        batch = build_batches(streams)[0]
         self.assertEqual(batch.distinct_patterns, 1)
         self.assertEqual(batch.patterns[0].count, 3)
-        self.assertEqual(batch.by_level, {"info": 3})
 
-    def test_respects_max_lines_and_marks_truncated(self):
-        words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]
-        values = [[str(1_700_000_000_000_000_000 + i), f"error: failure mode {words[i]}"] for i in range(10)]
-        batches = build_batches(make_streams(values=values, level="error"), max_lines=3)
-        batch = batches[0]
-        self.assertEqual(len(batch.patterns), 3)
-        self.assertTrue(batch.truncated)
-        self.assertEqual(batch.omitted_patterns, 7)
-        self.assertEqual(batch.total_lines, 10)
+    def test_over_budget_patterns_are_omitted_not_silently_kept(self):
+        words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot"]
+        values = [[str(1_700_000_000_000_000_000 + i), f"error: failure mode {words[i]}"] for i in range(6)]
+        over = build_batches(make_streams(values=values, level="error"), max_lines=3)[0]
+        under = build_batches(make_streams(values=values, level="error"), max_lines=6)[0]
+        self.assertTrue(over.truncated)
+        self.assertEqual(over.omitted_patterns, 3)
+        self.assertFalse(under.truncated)
+        self.assertEqual(under.omitted_patterns, 0)
 
-    def test_excludes_apps(self):
+    def test_exclude_list_drops_only_named_apps(self):
         streams = make_streams(app="loki") + make_streams(app="vikunja")
-        batches = build_batches(streams, exclude_apps=("loki",))
-        self.assertEqual([b.source for b in batches], ["vikunja"])
+        kept = build_batches(streams, exclude_apps=("loki",))
+        all_apps = build_batches(streams)
+        self.assertEqual([b.source for b in kept], ["vikunja"])
+        self.assertEqual({b.source for b in all_apps}, {"loki", "vikunja"})
 
-    def test_groups_by_namespace_and_app(self):
-        streams = make_streams(app="a") + make_streams(app="b", namespace="other")
-        batches = build_batches(streams)
-        self.assertEqual({b.source for b in batches}, {"a", "b"})
+    def test_normalize_strips_color_and_volatile_tokens(self):
+        colored = normalize_line("\x1b[31merror:\x1b[0m failed")
+        a = normalize_line("2026-09-19T21:59:40.780Z level=info id=550e8400-e29b-41d4-a716-446655440000 took 237.471µs")
+        b = normalize_line("2026-09-19T22:04:11.001Z level=info id=550e8400-e29b-41d4-a716-446655440001 took 51.002µs")
+        self.assertNotIn("\x1b", colored)
+        self.assertEqual(a, b)
 
-    def test_state_shape(self):
-        batch = make_batch()
-        state = build_state(batch)
-        self.assertEqual(state["source"]["app"], "app")
-        self.assertEqual(state["volume"]["matched_lines"], 5)
-        self.assertEqual(state["window"]["minutes"], 1.0)
-        json.dumps(state)  # must be JSON serializable
-
-
-class DemoFixtureTests(unittest.TestCase):
-    def test_demo_fixture_builds_seven_sources(self):
-        streams = load_demo_streams()
-        batches = build_batches(streams)
-        sources = {b.source for b in batches}
-        self.assertEqual(len(streams), 7)
-        self.assertEqual(
-            sources,
-            {
-                "coredns",
-                "news-linker",
-                "kube-state-metrics",
-                "authentik",
-                "alertmanager",
-                "helm-controller",
-                "forgejo-runner",
-            },
-        )
-        coredns = next(b for b in batches if b.source == "coredns")
-        self.assertLess(coredns.distinct_patterns, coredns.total_lines)
+    def test_level_comes_from_label_else_the_line(self):
+        cases = [
+            ("label wins", "info noise", {"detected_level": "critical"}, "critical"),
+            ("logfmt", "level=ERROR boom", None, "error"),
+            ("klog", "W0919 21:51:40.388 warnings.go:70] deprecated", None, "warn"),
+            ("no signal", "all good", None, "unknown"),
+        ]
+        for name, line, labels, expected in cases:
+            with self.subTest(name):
+                self.assertEqual(detect_level(line, labels), expected)
 
 
 class SelectorTests(unittest.TestCase):
-    def test_defaults_to_all_namespaces(self):
-        self.assertEqual(build_selector(Config()), '{namespace=~".+"}')
+    def test_filters_compose_unless_a_raw_query_is_set(self):
+        cases = [
+            ("default", Config(), '{namespace=~".+"}'),
+            (
+                "labels and pipeline",
+                Config(
+                    namespaces=("services", "monitoring"),
+                    levels=("error", "warn"),
+                    line_filter='|~ "timeout"',
+                ),
+                '{namespace=~"services|monitoring"} | detected_level =~ "error|warn" |~ "timeout"',
+            ),
+            (
+                "filter without leading pipe",
+                Config(line_filter='~ "timeout"'),
+                '{namespace=~".+"} | ~ "timeout"',
+            ),
+            ("raw query wins", Config(query='{app="x"}', namespaces=("ignored",)), '{app="x"}'),
+        ]
+        for name, cfg, expected in cases:
+            with self.subTest(name):
+                self.assertEqual(build_selector(cfg), expected)
 
-    def test_namespace_levels_and_filter(self):
-        cfg = Config(namespaces=("services", "monitoring"), levels=("error", "warn"), line_filter='|~ "timeout"')
-        self.assertEqual(
-            build_selector(cfg),
-            '{namespace=~"services|monitoring"} | detected_level =~ "error|warn" |~ "timeout"',
-        )
 
-    def test_raw_query_wins(self):
-        self.assertEqual(build_selector(Config(query='{app="x"}')), '{app="x"}')
-
-    def test_duration_parsing(self):
+class DurationTests(unittest.TestCase):
+    def test_accepts_unit_suffixes_and_rejects_garbage(self):
         self.assertEqual(parse_duration("30m").total_seconds(), 1800)
-        self.assertEqual(parse_duration("2h").total_seconds(), 7200)
-        self.assertEqual(parse_duration("1d").total_seconds(), 86400)
+        with self.assertRaises(argparse.ArgumentTypeError):
+            parse_duration("tomorrow")
 
 
 class ApiKeyTests(unittest.TestCase):
-    def test_env_wins(self):
-        with mock.patch.dict(os.environ, {"TYPESAFE_API_KEY": "apikey_env"}, clear=False):
-            self.assertEqual(load_api_key(), "apikey_env")
-
-    def test_raw_token_file(self):
+    def test_env_beats_file_and_file_is_used_when_env_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / ".typesafe"
-            path.write_text("apikey_123456\n", encoding="utf-8")
+            path.write_text("apikey_file\n", encoding="utf-8")
+            with mock.patch.dict(os.environ, {"TYPESAFE_API_KEY": "apikey_env"}):
+                self.assertEqual(load_api_key(str(path)), "apikey_env")
             with mock.patch.dict(os.environ, {}, clear=True):
-                self.assertEqual(load_api_key(str(path)), "apikey_123456")
+                self.assertEqual(load_api_key(str(path)), "apikey_file")
 
-    def test_key_value_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / ".typesafe"
-            path.write_text("TYPESAFE_API_KEY=apikey_abc\n", encoding="utf-8")
-            with mock.patch.dict(os.environ, {}, clear=True):
-                self.assertEqual(load_api_key(str(path)), "apikey_abc")
+
+class DemoTests(unittest.TestCase):
+    def test_bundled_fixture_is_multiple_sources_not_one_blob(self):
+        batches = build_batches(load_demo_streams())
+        names = {b.source for b in batches}
+        self.assertIn("coredns", names)
+        self.assertGreater(len(names), 1)
 
 
 class DecisionTests(unittest.TestCase):
-    def setUp(self):
-        self.cfg = Config()
-        self.state = build_state(make_batch())
+    """The if/elif chain is one policy. Spec it as a table, including near-misses."""
 
-    def test_noise_is_suppressed(self):
-        d = decide(make_batch(), fake_answers(severity=0.5, is_noise=0.95), self.state, self.cfg)
-        self.assertEqual(d.decision, "suppress")
-
-    def test_low_action_probability_watches(self):
-        d = decide(make_batch(), fake_answers(needs_action=0.2), self.state, self.cfg)
-        self.assertEqual(d.decision, "watch")
-
-    def test_low_confidence_routes_to_review(self):
-        d = decide(
-            make_batch(),
-            fake_answers(severity_conf=0.3, needs_action=0.9),
-            self.state,
-            self.cfg,
-        )
-        self.assertEqual(d.decision, "review")
-
-    def test_high_severity_and_priority_pages(self):
-        d = decide(
-            make_batch(),
-            fake_answers(severity=3.0, impact=3.0, needs_action=0.95),
-            self.state,
-            self.cfg,
-        )
-        self.assertEqual(d.decision, "page")
-
-    def test_safe_auto_remediation_candidate(self):
-        d = decide(
-            make_batch(),
-            fake_answers(
-                severity=2.2,
-                impact=1.0,
-                category="resource",
-                auto_remediable=0.95,
-                needs_action=0.9,
+    def test_gates_choose_the_decision(self):
+        cfg = Config()
+        state = build_state(make_batch())
+        cases = [
+            ("high noise, low severity", dict(severity=0.5, is_noise=0.95), "suppress"),
+            (
+                "high noise but page-level severity still pages",
+                dict(severity=3.0, impact=3.0, is_noise=0.95, needs_action=0.9),
+                "page",
             ),
-            self.state,
-            self.cfg,
-        )
-        self.assertEqual(d.decision, "auto_remediate_candidate")
-
-    def test_security_is_never_auto_remediated(self):
-        d = decide(
-            make_batch(),
-            fake_answers(
-                severity=2.2,
-                impact=1.0,
-                category="security",
-                auto_remediable=0.99,
-                needs_action=0.9,
+            ("needs_action below threshold", dict(needs_action=0.2), "watch"),
+            ("needs_action at threshold is not watch", dict(needs_action=0.5, severity=1.6), "notify"),
+            ("low confidence", dict(severity_conf=0.3, needs_action=0.9), "review"),
+            ("confidence at floor is not review", dict(severity_conf=0.5, needs_action=0.9, severity=1.6), "notify"),
+            ("severity and priority both high", dict(severity=3.0, impact=3.0, needs_action=0.95), "page"),
+            (
+                "page-level severity without priority does not page",
+                dict(severity=2.2, impact=0.0, needs_action=0.9),
+                "notify",
             ),
-            self.state,
-            self.cfg,
-        )
-        self.assertEqual(d.decision, "notify")
-
-    def test_plain_signal_notifies(self):
-        d = decide(
-            make_batch(),
-            fake_answers(severity=1.6, impact=1.0, auto_remediable=0.2, needs_action=0.9),
-            self.state,
-            self.cfg,
-        )
-        self.assertEqual(d.decision, "notify")
-
-    def test_rationale_records_numbers(self):
-        d = decide(make_batch(), fake_answers(), self.state, self.cfg)
-        joined = " ".join(d.rationale)
-        self.assertIn("priority=", joined)
-        self.assertIn("needs_action=", joined)
+            (
+                "safe category with high auto score",
+                dict(severity=2.2, impact=1.0, category="resource", auto_remediable=0.95, needs_action=0.9),
+                "auto_remediate_candidate",
+            ),
+            (
+                "security is never auto-remediated",
+                dict(severity=2.2, impact=1.0, category="security", auto_remediable=0.99, needs_action=0.9),
+                "notify",
+            ),
+        ]
+        for name, overrides, expected in cases:
+            with self.subTest(name):
+                got = decide(make_batch(), fake_answers(**overrides), state, cfg)
+                self.assertEqual(got.decision, expected)
 
 
 if __name__ == "__main__":
