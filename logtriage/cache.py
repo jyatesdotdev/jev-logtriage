@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from logtriage.batch import Batch
+from logtriage.batch import Batch, build_state
 from logtriage.serialize import to_jsonable
 
 
@@ -21,6 +21,8 @@ def default_cache_path() -> Path:
 
 
 def volume_bucket(n: int) -> str:
+    if n == 0:
+        return "0"
     if n <= 1:
         return "1"
     if n <= 9:
@@ -32,22 +34,32 @@ def volume_bucket(n: int) -> str:
     return "1000+"
 
 
-def canonical_state(batch: Batch) -> dict[str, Any]:
-    """Judgment-relevant projection of a batch. Timestamps and exact counts are dropped."""
+def canonical_state(
+    batch: Batch, loki_url: str = "", org_id: str | None = None,
+) -> dict[str, Any]:
+    """Keep diagnostic values and source identity; bucket counts, not measurements."""
+    state = build_state(batch)
     patterns = sorted(
-        ({"level": p.level, "key": p.key} for p in batch.patterns),
+        ({"level": p.level, "key": p.key, "count": volume_bucket(p.count)} for p in batch.patterns),
         key=lambda item: item["key"],
     )
     by_level = {
         level: volume_bucket(count) for level, count in sorted(batch.by_level.items())
     }
     return {
-        "source": {
-            "namespace": batch.labels.get("namespace", ""),
-            "app": batch.labels.get("app") or batch.source,
-        },
+        "version": 2,
+        "loki": {"url": loki_url.rstrip("/"), "org_id": org_id},
+        "source": state["source"],
+        "window_minutes": state["window"]["minutes"],
         "patterns": patterns,
-        "volume": {"matched": volume_bucket(batch.total_lines), "by_level": by_level},
+        "volume": {
+            "matched": volume_bucket(batch.total_lines),
+            "by_level": by_level,
+            "distinct_patterns": batch.distinct_patterns,
+            "omitted_patterns": batch.omitted_patterns,
+            "omitted_lines": volume_bucket(batch.omitted_lines),
+            "truncated": batch.truncated,
+        },
     }
 
 
@@ -72,19 +84,23 @@ class AnswerCache:
             db = Path(path)
             db.parent.mkdir(parents=True, exist_ok=True)
             self.conn = sqlite3.connect(db)
-        self.conn.execute("PRAGMA journal_mode = WAL")
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS answers (
-              model       TEXT NOT NULL,
-              schema_hash TEXT NOT NULL,
-              state_hash  TEXT NOT NULL,
-              answers     TEXT NOT NULL,
-              seen_at     TEXT NOT NULL,
-              PRIMARY KEY (model, schema_hash, state_hash)
+        try:
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS answers (
+                  model       TEXT NOT NULL,
+                  schema_hash TEXT NOT NULL,
+                  state_hash  TEXT NOT NULL,
+                  answers     TEXT NOT NULL,
+                  seen_at     TEXT NOT NULL,
+                  PRIMARY KEY (model, schema_hash, state_hash)
+                )
+                """
             )
-            """
-        )
+        except sqlite3.Error:
+            self.conn.close()
+            raise
         self.hits = 0
         self.misses = 0
 
@@ -102,14 +118,25 @@ class AnswerCache:
         if row is None:
             self.misses += 1
             return None
+        try:
+            payload = json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+        if not isinstance(payload, dict):
+            self.conn.execute(
+                "DELETE FROM answers WHERE model = ? AND schema_hash = ? AND state_hash = ?",
+                (model, schema_hash, state_hash),
+            )
+            self.conn.commit()
+            self.misses += 1
+            return None
         self.hits += 1
         self.conn.execute(
             "UPDATE answers SET seen_at = ? WHERE model = ? AND schema_hash = ? AND state_hash = ?",
             (_now(), model, schema_hash, state_hash),
         )
         self.conn.commit()
-        payload = json.loads(row[0])
-        return payload if isinstance(payload, dict) else None
+        return payload
 
     def put(self, model: str, schema_hash: str, state_hash: str, answers: Mapping[str, Any]) -> None:
         self.conn.execute(

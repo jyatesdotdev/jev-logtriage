@@ -17,6 +17,17 @@ except ImportError:  # pragma: no cover
     SDK_AVAILABLE = False
 
 
+_CATEGORY_CRITERIA = {
+    "app_error": "Application bug, exception, or failed request in a service's own code.",
+    "resource": "CPU/memory/disk saturation, OOM kill, or capacity exhaustion.",
+    "infra": "Kubernetes, node, scheduler, storage, or DNS problem.",
+    "network": "Connectivity, timeout, TLS, ingress, or service routing problem.",
+    "config": "Misconfiguration, bad manifest, image pull failure, or failed rollout.",
+    "security": "Auth failures, intrusion attempts, certificate or credential issues.",
+    "expected_noise": "Benign or expected behavior with no action needed.",
+}
+
+
 def build_questions() -> dict[str, Any]:
     """Typed questions asked of every batch in one System One call.
 
@@ -94,15 +105,7 @@ def build_questions() -> dict[str, Any]:
         ),
         "category": Choice(
             instructions="What is the primary category of the condition in `log_lines`?",
-            criteria={
-                "app_error": "Application bug, exception, or failed request in a service's own code.",
-                "resource": "CPU/memory/disk saturation, OOM kill, or capacity exhaustion.",
-                "infra": "Kubernetes, node, scheduler, storage, or DNS problem.",
-                "network": "Connectivity, timeout, TLS, ingress, or service routing problem.",
-                "config": "Misconfiguration, bad manifest, image pull failure, or failed rollout.",
-                "security": "Auth failures, intrusion attempts, certificate or credential issues.",
-                "expected_noise": "Benign or expected behavior with no action needed.",
-            },
+            criteria=_CATEGORY_CRITERIA,
         ),
     }
 
@@ -130,18 +133,22 @@ class Decision:
     error: str | None = None
 
 
-def _field(answers: Mapping[str, Any], question_id: str, name: str, default: Any) -> Any:
+def _required_field(answers: Mapping[str, Any], question_id: str, name: str) -> Any:
     answer = answers.get(question_id)
-    if answer is None:
-        return default
-    if isinstance(answer, Mapping):
-        return answer.get(name, default)
-    return getattr(answer, name, default)
+    value = answer.get(name) if isinstance(answer, Mapping) else getattr(answer, name, None)
+    if value is None:
+        raise ValueError(f"missing Jev answer field: {question_id}.{name}")
+    return value
 
 
-def _confidence(answers: Mapping[str, Any], question_id: str) -> float:
-    value = _field(answers, question_id, "confidence", None)
-    return float(value) if value is not None else 1.0
+def _answer_number(
+    answers: Mapping[str, Any], question_id: str, name: str, maximum: float = 1.0,
+) -> float:
+    value = _required_field(answers, question_id, name)
+    is_numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not is_numeric or not 0.0 <= value <= maximum:
+        raise ValueError(f"invalid Jev answer field: {question_id}.{name}; expected 0..{maximum:g}")
+    return float(value)
 
 
 def decide(batch: Batch, answers: Mapping[str, Any], state: dict[str, Any], cfg: Config) -> Decision:
@@ -151,15 +158,17 @@ def decide(batch: Batch, answers: Mapping[str, Any], state: dict[str, Any], cfg:
     floor (never act on an answer the model is unsure about), then composite
     priority for page vs. notify vs. auto-remediation candidate.
     """
-    severity = float(_field(answers, "severity", "score", 0.0))
-    impact = float(_field(answers, "impact_scope", "score", 0.0))
-    severity_conf = _confidence(answers, "severity")
-    impact_conf = _confidence(answers, "impact_scope")
-    category_conf = _confidence(answers, "category")
-    category = str(_field(answers, "category", "choice", "unknown"))
-    needs_action = float(_field(answers, "needs_action", "noul", 0.0))
-    is_noise = float(_field(answers, "is_routine_noise", "noul", 0.0))
-    auto_remediable = float(_field(answers, "auto_remediable", "noul", 0.0))
+    severity = _answer_number(answers, "severity", "score", 3.0)
+    impact = _answer_number(answers, "impact_scope", "score", 3.0)
+    severity_conf = _answer_number(answers, "severity", "confidence")
+    impact_conf = _answer_number(answers, "impact_scope", "confidence")
+    category_conf = _answer_number(answers, "category", "confidence")
+    category = _required_field(answers, "category", "choice")
+    if not isinstance(category, str) or category not in _CATEGORY_CRITERIA:
+        raise ValueError("invalid Jev answer field: category.choice")
+    needs_action = _answer_number(answers, "needs_action", "noul")
+    is_noise = _answer_number(answers, "is_routine_noise", "noul")
+    auto_remediable = _answer_number(answers, "auto_remediable", "noul")
 
     severity_norm = severity / 3.0
     impact_norm = impact / 3.0

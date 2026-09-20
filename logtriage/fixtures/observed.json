@@ -1,0 +1,56 @@
+{
+  "description": "Representative diagnostic excerpts from a Loki sample collected on 2026-09-20. Source names are generated; identifiers, paths, URLs, digests, timestamps, headers, and unrelated fields were removed or replaced. Repeats are capped at two per message. This is not a labeled model-accuracy benchmark.",
+  "streams": [
+    {
+      "stream": {"namespace": "example", "app": "example-feed-reader"},
+      "lines": [
+        "warn: RSS skipping feed https://example.invalid/feed: Redirect response '304 Not Modified'",
+        "warn: RSS skipping feed https://example.invalid/feed: Redirect response '304 Not Modified'"
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-image-verifier"},
+      "lines": [
+        "error: failed to validate image signature for image sha256:<digest>: expected image index descriptor, got application/vnd.oci.image.manifest.v1+json"
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-metrics-exporter"},
+      "lines": [
+        "warn: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice",
+        "warn: v1 Endpoints is deprecated in v1.33+; use discovery.k8s.io/v1 EndpointSlice"
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-monitor-controller"},
+      "lines": [
+        "warn: 'matchers' field is using a deprecated syntax which will be removed in future versions",
+        "warn: skipping servicemonitor: scrapeTimeout \"30s\" greater than scrapeInterval \"5s\""
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-notification-dispatcher"},
+      "lines": [
+        "error: Notify for alerts failed; webhook[0]: notify retry canceled due to unrecoverable error after 1 attempts: unexpected status code 400: invalid request: message or title is too large after replacing template",
+        "error: Notify for alerts failed; webhook[0]: notify retry canceled due to unrecoverable error after 1 attempts: unexpected status code 400: invalid request: message or title is too large after replacing template"
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-registry"},
+      "lines": [
+        "error: response completed with error: blob unknown to registry; method=HEAD status=404",
+        "error: response completed with error: blob unknown to registry; method=HEAD status=404",
+        "error: response completed with error: manifest unknown; method=HEAD status=404",
+        "error: response completed with error: manifest unknown; method=HEAD status=404"
+      ]
+    },
+    {
+      "stream": {"namespace": "example", "app": "example-release-controller"},
+      "lines": [
+        "error: Reconciler error; terminal error: exceeded maximum retries: cannot remediate failed release",
+        "error: Reconciler error; values do not meet the chart schema: at '<schema-path>', additional properties '<field>', 'path', 'type' not allowed",
+        "error: Reconciler error; values do not meet the chart schema: at '<schema-path>', additional properties '<field>', 'path', 'type' not allowed"
+      ]
+    }
+  ]
+}

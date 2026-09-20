@@ -6,8 +6,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
-DB="${TMPDIR:-/tmp}/jev-logtriage-bench.sqlite"
-rm -f "$DB" "$DB-wal" "$DB-shm"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/jev-logtriage-bench.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+DB="$WORK/answers.sqlite3"
 
 run() {
   local label=$1

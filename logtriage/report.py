@@ -49,9 +49,10 @@ def render_summary(report: Mapping[str, Any]) -> str:
         source = item["source"]
         if len(source) > 40:
             source = source[:37] + "..."
+        confidence = min(item.get(f"{field}_confidence", 0) for field in ("severity", "impact", "category"))
         lines.append(
             f"{label} {item.get('severity', 0):>4.1f} {item.get('priority', 0):>5.2f} "
-            f"{min(item.get('severity_confidence', 1), item.get('category_confidence', 1)):>5.2f} "
+            f"{confidence:>5.2f} "
             f"{item.get('category', '-'):<16} {source}"
         )
     lines.append("")

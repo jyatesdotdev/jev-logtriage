@@ -6,8 +6,10 @@ import argparse
 import json
 import os
 import re
+import sqlite3
 import sys
 from collections import Counter
+from contextlib import ExitStack
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -22,9 +24,9 @@ from logtriage.cache import (
 )
 from logtriage.config import DEFAULT_LOKI_URL, DEFAULT_MODEL, VERSION, Config
 from logtriage.decide import SDK_AVAILABLE, Decision, build_questions, decide, empty_error_decision
-from logtriage.serialize import to_jsonable
 from logtriage.loki import LokiClient, LokiError, LokiPortForward, build_selector
 from logtriage.report import build_report, emit_report
+from logtriage.serialize import to_jsonable
 
 try:  # pragma: no cover
     from typesafe_sdk import RetryPolicy, TypeSafeClient
@@ -225,17 +227,7 @@ def cfg_from_args(args: argparse.Namespace) -> Config:
 def run(cfg: Config, args: argparse.Namespace) -> int:
     started_at = datetime.now(timezone.utc)
     cache: AnswerCache | None = None
-    lookup = False
-    port_forward: LokiPortForward | None = None
-    try:
-        if cfg.cache or cfg.cache_clear:
-            cache = AnswerCache(cfg.cache_db or default_cache_path())
-            if cfg.cache_clear:
-                cache.clear()
-                if not args.quiet:
-                    print("cache cleared", file=sys.stderr)
-            lookup = cfg.cache
-
+    with ExitStack() as resources:
         if cfg.print_questions:
             print(json.dumps(to_jsonable(build_questions()), indent=2))
             return 0
@@ -250,6 +242,19 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
                 print("namespaces: " + ", ".join(namespaces))
                 print("apps: " + ", ".join(apps))
             return 0
+
+        if cfg.cache or cfg.cache_clear:
+            try:
+                cache = resources.enter_context(AnswerCache(cfg.cache_db or default_cache_path()))
+                if cfg.cache_clear:
+                    cache.clear()
+                    if not args.quiet:
+                        print("cache cleared", file=sys.stderr)
+                if not cfg.cache:
+                    cache = None
+            except (OSError, sqlite3.Error) as exc:
+                cache = None
+                print(f"cache disabled: {exc}", file=sys.stderr)
 
         if not SDK_AVAILABLE:
             raise SystemExit(
@@ -268,6 +273,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
                         namespace=args.port_forward_namespace,
                         service=args.port_forward_service,
                     )
+                    resources.callback(port_forward.stop)
                     port_forward.start()
                     client = LokiClient(
                         f"http://127.0.0.1:{port_forward.local_port}",
@@ -297,8 +303,9 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
 
         retry = RetryPolicy(max_retries=2, timeout=cfg.api_timeout)
         ts_client = TypeSafeClient(api_key=cfg.api_key, model=cfg.model, retry=retry, timeout=cfg.api_timeout)
+        resources.callback(ts_client.close)
         questions = build_questions()
-        schema_hash = sha256_json(canonical_questions(questions)) if lookup else ""
+        schema_hash = sha256_json(canonical_questions(questions)) if cache is not None else ""
         decisions: list[Decision] = []
         errors: list[dict[str, str]] = []
         usage_totals: Counter[str] = Counter()
@@ -314,19 +321,32 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             try:
                 answers = None
                 state_hash = ""
-                if cache is not None and lookup:
-                    state_hash = sha256_json(canonical_state(batch))
-                    answers = cache.get(cfg.model, schema_hash, state_hash)
-                if answers is None:
+                if cache is not None:
+                    state_hash = sha256_json(canonical_state(
+                        batch, "demo://fixtures" if cfg.demo else cfg.loki_url,
+                        None if cfg.demo else cfg.loki_org_id,
+                    ))
+                    try:
+                        answers = cache.get(cfg.model, schema_hash, state_hash)
+                    except sqlite3.Error as exc:
+                        cache = None
+                        print(f"cache disabled: {exc}", file=sys.stderr)
+                fetched_from_api = answers is None
+                if fetched_from_api:
                     response = ts_client.system_one(state=state, questions=questions)
                     answers = dict(response.answers)
                     usage = to_jsonable(getattr(response, "usage", None)) or {}
                     for key, value in (usage.items() if isinstance(usage, Mapping) else []):
                         if isinstance(value, (int, float)):
                             usage_totals[str(key)] += int(value)
-                    if cache is not None and lookup:
-                        cache.put(cfg.model, schema_hash, state_hash, answers)
-                decisions.append(decide(batch, answers, state, cfg))
+                decision = decide(batch, answers, state, cfg)
+                if fetched_from_api and cache is not None:
+                    try:
+                        cache.put(cfg.model, schema_hash, state_hash, decision.answers)
+                    except sqlite3.Error as exc:
+                        cache = None
+                        print(f"cache disabled: {exc}", file=sys.stderr)
+                decisions.append(decision)
             except Exception as exc:  # noqa: BLE001 - report, don't lose the batch
                 message = f"{type(exc).__name__}: {exc}"
                 errors.append({"source": batch.source, "error": message})
@@ -337,7 +357,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             usage_totals, started_at, skipped,
         )
         emit_report(cfg, report, quiet=args.quiet)
-        if lookup and cache is not None and not args.quiet:
+        if cache is not None and not args.quiet:
             print(f"cache hit {cache.hits}  miss {cache.misses}", file=sys.stderr)
         if cfg.fail_on:
             matched = [d.decision for d in decisions if d.decision in cfg.fail_on]
@@ -351,11 +371,6 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         if errors and len(errors) == len(decisions):
             return 1
         return 0
-    finally:
-        if cache is not None:
-            cache.close()
-        if port_forward:
-            port_forward.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -366,7 +381,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except LokiError as exc:
         print(f"loki error: {exc}", file=sys.stderr)
         return 1
-    except RuntimeError as exc:
+    except (RuntimeError, argparse.ArgumentTypeError, OSError) as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:  # pragma: no cover

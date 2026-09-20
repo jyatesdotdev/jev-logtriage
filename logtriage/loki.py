@@ -139,19 +139,21 @@ def build_selector(cfg: Config) -> str:
         return cfg.query
     parts: list[str] = []
     if cfg.namespaces:
-        parts.append(f'namespace=~"{regex_alternation(cfg.namespaces)}"')
+        parts.append(f'namespace=~{json.dumps(regex_alternation(cfg.namespaces), ensure_ascii=False)}')
     else:
         parts.append('namespace=~".+"')
     if cfg.apps:
-        parts.append(f'app=~"{regex_alternation(cfg.apps)}"')
+        parts.append(f'app=~{json.dumps(regex_alternation(cfg.apps), ensure_ascii=False)}')
     selector = "{" + ", ".join(parts) + "}"
     # detected_level is structured metadata in this Loki install, so it has to
     # be a pipeline filter rather than a stream-selector match.
     if cfg.levels:
-        selector = f'{selector} | detected_level =~ "{regex_alternation(cfg.levels)}"'
+        selector = f'{selector} | detected_level =~ {json.dumps(regex_alternation(cfg.levels), ensure_ascii=False)}'
     if cfg.line_filter:
         filter_text = cfg.line_filter.strip()
-        if not filter_text.startswith("|"):
+        if filter_text.startswith(("~", "=")):
+            filter_text = f"|{filter_text}"
+        elif not filter_text.startswith(("|", "!=", "!~")):
             filter_text = f"| {filter_text}"
         selector = f"{selector} {filter_text}"
     return selector

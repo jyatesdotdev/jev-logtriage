@@ -1,0 +1,4 @@
+include uv.lock
+recursive-include tests *.py
+recursive-include docs *.md *.svg
+recursive-include scripts *.sh

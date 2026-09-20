@@ -17,16 +17,16 @@ from logtriage.loki import LokiError
 # ---------------------------------------------------------------------------
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _NORMALIZERS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^([IWEF])\d{4}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\s+(?:\d+\s+)?"), r"\1<ts> "),
     (re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"), "<ts>"),
-    (re.compile(r"(?i)\b((?:[a-z_]*id|requestid|traceid|spanid|sessionid|userid))\s*[:=]\s*[A-Za-z0-9._-]+"), r"\1=<id>"),
+    (re.compile(r"(?i)\b((?:[a-z_]+_)?id|requestid|traceid|spanid|sessionid|userid)\s*[:=]\s*[A-Za-z0-9._-]+"), r"\1=<id>"),
     (re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"), "<uuid>"),
     (re.compile(r"\b[0-9a-fA-F]{16,}\b"), "<hex>"),
-    (re.compile(r"\b\d+(?:\.\d+)?(?:ms|µs|us|ns|s|m|h|MiB|GiB|KiB|MB|GB|KB|B|%)\b"), "<num>"),
-    (re.compile(r"\b\d+\b"), "<n>"),
+    # Keep numeric values: status codes, durations, and resource usage can change the judgment.
 )
 _KLOG_RE = re.compile(r"^([IWEF])\d{4}\b")
 _LEVEL_TOKEN_RE = re.compile(
-    r"(?i)\blevel[\s:=]+['\"]?(error|err|fatal|panic|critical|warn|warning|notice|info|debug|trace)"
+    r"(?i)\b(?:level|severity)['\"]?[\s:=]+['\"]?(error|err|fatal|panic|critical|warn|warning|notice|info|debug|trace)\b"
 )
 _LEVEL_WORD_RE = re.compile(
     r"(?i)^\s*\[?(error|err|fatal|panic|critical|warn|warning|notice|info|debug|trace)\]?\b"
@@ -75,7 +75,7 @@ def normalize_line(line: str) -> str:
     cleaned = ANSI_RE.sub("", line).strip()
     for pattern, replacement in _NORMALIZERS:
         cleaned = pattern.sub(replacement, cleaned)
-    return cleaned[:240]
+    return cleaned
 
 
 def source_name(labels: Mapping[str, str]) -> str:

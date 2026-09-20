@@ -23,6 +23,7 @@ class DecisionTests(unittest.TestCase):
             ("needs_action below threshold", dict(needs_action=0.2), "watch"),
             ("needs_action at threshold is not watch", dict(needs_action=0.5, severity=1.6), "notify"),
             ("low confidence", dict(severity_conf=0.3, needs_action=0.9), "review"),
+            ("low impact confidence", dict(impact_conf=0.3, needs_action=0.9), "review"),
             ("confidence at floor is not review", dict(severity_conf=0.5, needs_action=0.9, severity=1.6), "notify"),
             ("severity and priority both high", dict(severity=3.0, impact=3.0, needs_action=0.95), "page"),
             (
@@ -45,3 +46,29 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(name):
                 got = decide(make_batch(), fake_answers(**overrides), state, cfg)
                 self.assertEqual(got.decision, expected)
+
+    def test_incomplete_or_invalid_answers_never_become_a_decision(self):
+        cases = [
+            ("missing question", "needs_action", None, None),
+            ("missing confidence", "category", "confidence", None),
+            ("nonfinite score", "severity", "score", float("nan")),
+            ("nonfinite confidence", "impact_scope", "confidence", float("inf")),
+            ("out of range", "needs_action", "noul", 1.1),
+            ("boolean is not a score", "severity", "score", True),
+            ("unknown choice", "category", "choice", "not-a-category"),
+        ]
+        batch = make_batch()
+        for name, question, field, value in cases:
+            for as_json in (False, True):
+                with self.subTest(name=name, as_json=as_json):
+                    answers = fake_answers()
+                    if field is None:
+                        del answers[question]
+                    elif value is None:
+                        delattr(answers[question], field)
+                    else:
+                        setattr(answers[question], field, value)
+                    if as_json:
+                        answers = {key: vars(answer) for key, answer in answers.items()}
+                    with self.assertRaises(ValueError):
+                        decide(batch, answers, build_state(batch), Config())
