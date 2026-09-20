@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://pypi.org/project/jev-logtriage/"><img alt="PyPI" src="https://img.shields.io/pypi/v/jev-logtriage?style=flat-square"></a>
   <a href="https://github.com/jyatesdotdev/jev-logtriage/blob/main/LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-5a4a63?style=flat-square"></a>
   <a href="https://docs.typesafe.ai/introduction"><img alt="Jev" src="https://img.shields.io/badge/TypeSafe-Jev-e551ba?style=flat-square"></a>
   <a href="https://www.python.org/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10+-3776ab?style=flat-square"></a>
