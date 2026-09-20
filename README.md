@@ -114,11 +114,11 @@ A JSON report is written to `reports/triage-<timestamp>.json` unless you pass `-
 
 ## Limits
 
-There is no memory across runs yet. The same coredns glob warning will be classified every time you invoke the script. The planned answer cache is in [docs/cache.md](docs/cache.md).
+Repeat judgments skip Jev. Answers are stored in SQLite keyed by `(model, schema, canonical state)` and `decide()` still runs locally. `--no-cache` turns it off, `--cache-db` sets the file, `--cache-clear` wipes it. See [docs/cache.md](docs/cache.md).
 
 `--fail-on page` exits 2 if any batch was paged, which is enough to hang off a CI job or a wrapper.
 
-Tests sit next to the module they pin down (`tests/test_batch.py`, `test_decide.py`, `test_loki.py`, `test_cli.py`). Pull requests run them on 3.10 and 3.12.
+Tests sit next to the module they pin down (`tests/test_batch.py`, `test_decide.py`, `test_loki.py`, `test_cli.py`, `test_cache.py`). Pull requests run them on 3.10 and 3.12.
 
 ```bash
 uv run python -m unittest discover -s tests -t . -v

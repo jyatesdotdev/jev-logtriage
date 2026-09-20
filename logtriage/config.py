@@ -63,3 +63,6 @@ class Config:
     print_questions: bool = False
     list_sources: bool = False
     demo: bool = False
+    cache: bool = True
+    cache_db: str | None = None
+    cache_clear: bool = False

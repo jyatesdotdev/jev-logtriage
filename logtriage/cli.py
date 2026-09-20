@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from logtriage.batch import build_batches, build_state, load_demo_streams, normalize_level
+from logtriage.cache import (
+    AnswerCache,
+    canonical_questions,
+    canonical_state,
+    default_cache_path,
+    sha256_json,
+)
 from logtriage.config import DEFAULT_LOKI_URL, DEFAULT_MODEL, VERSION, Config
 from logtriage.decide import (
     SDK_AVAILABLE,
@@ -159,6 +166,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     out.add_argument("--list-sources", action="store_true", help="list namespaces/apps present in Loki and exit")
     out.add_argument("--quiet", action="store_true")
     out.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+
+    cache = parser.add_argument_group("cache")
+    cache.add_argument("--no-cache", action="store_true", help="do not read or write cached answers")
+    cache.add_argument("--cache-db", help="SQLite path (default: ~/.cache/jev-logtriage/answers.sqlite3)")
+    cache.add_argument("--cache-clear", action="store_true", help="delete cached answers at the start of the run")
     return parser.parse_args(argv)
 
 
@@ -210,36 +222,48 @@ def cfg_from_args(args: argparse.Namespace) -> Config:
         print_questions=args.print_questions,
         list_sources=args.list_sources,
         demo=args.demo,
+        cache=not args.no_cache,
+        cache_db=args.cache_db,
+        cache_clear=args.cache_clear,
     )
 
 
 def run(cfg: Config, args: argparse.Namespace) -> int:
     started_at = datetime.now(timezone.utc)
-    if cfg.print_questions:
-        print(json.dumps(_to_jsonable(build_questions()), indent=2))
-        return 0
-
-    if cfg.list_sources:
-        client = LokiClient(cfg.loki_url, cfg.loki_org_id, cfg.loki_timeout)
-        namespaces = client.label_values("namespace")
-        apps = client.label_values("app")
-        if cfg.json_output:
-            print(json.dumps({"namespaces": namespaces, "apps": apps}, indent=2))
-        else:
-            print("namespaces: " + ", ".join(namespaces))
-            print("apps: " + ", ".join(apps))
-        return 0
-
-    if not SDK_AVAILABLE:
-        raise SystemExit(
-            "typesafe-sdk is not installed. Run: uv pip install typesafe-sdk"
-        )
-    cfg.api_key = load_api_key(args.api_key_file)
-    window = resolve_window(cfg.since, cfg.until)
-    query = "demo://fixtures" if cfg.demo else build_selector(cfg)
-
+    cache: AnswerCache | None = None
+    lookup = False
     port_forward: LokiPortForward | None = None
     try:
+        if cfg.cache or cfg.cache_clear:
+            cache = AnswerCache(cfg.cache_db or default_cache_path())
+            if cfg.cache_clear:
+                cache.clear()
+                if not args.quiet:
+                    print("cache cleared", file=sys.stderr)
+            lookup = cfg.cache
+
+        if cfg.print_questions:
+            print(json.dumps(_to_jsonable(build_questions()), indent=2))
+            return 0
+
+        if cfg.list_sources:
+            client = LokiClient(cfg.loki_url, cfg.loki_org_id, cfg.loki_timeout)
+            namespaces = client.label_values("namespace")
+            apps = client.label_values("app")
+            if cfg.json_output:
+                print(json.dumps({"namespaces": namespaces, "apps": apps}, indent=2))
+            else:
+                print("namespaces: " + ", ".join(namespaces))
+                print("apps: " + ", ".join(apps))
+            return 0
+
+        if not SDK_AVAILABLE:
+            raise SystemExit(
+                "typesafe-sdk is not installed. Run: uv pip install typesafe-sdk"
+            )
+        cfg.api_key = load_api_key(args.api_key_file)
+        window = resolve_window(cfg.since, cfg.until)
+        query = "demo://fixtures" if cfg.demo else build_selector(cfg)
         if cfg.demo:
             streams = load_demo_streams()
         else:
@@ -280,6 +304,7 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
         retry = RetryPolicy(max_retries=2, timeout=cfg.api_timeout)
         ts_client = TypeSafeClient(api_key=cfg.api_key, model=cfg.model, retry=retry, timeout=cfg.api_timeout)
         questions = build_questions()
+        schema_hash = sha256_json(canonical_questions(questions)) if lookup else ""
         decisions: list[Decision] = []
         errors: list[dict[str, str]] = []
         usage_totals: Counter[str] = Counter()
@@ -293,12 +318,20 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
                     file=sys.stderr,
                 )
             try:
-                response = ts_client.system_one(state=state, questions=questions)
-                answers = dict(response.answers)
-                usage = _to_jsonable(getattr(response, "usage", None)) or {}
-                for key, value in (usage.items() if isinstance(usage, Mapping) else []):
-                    if isinstance(value, (int, float)):
-                        usage_totals[str(key)] += int(value)
+                answers = None
+                state_hash = ""
+                if lookup and cache is not None:
+                    state_hash = sha256_json(canonical_state(batch))
+                    answers = cache.get(cfg.model, schema_hash, state_hash)
+                if answers is None:
+                    response = ts_client.system_one(state=state, questions=questions)
+                    answers = dict(response.answers)
+                    usage = _to_jsonable(getattr(response, "usage", None)) or {}
+                    for key, value in (usage.items() if isinstance(usage, Mapping) else []):
+                        if isinstance(value, (int, float)):
+                            usage_totals[str(key)] += int(value)
+                    if lookup and cache is not None:
+                        cache.put(cfg.model, schema_hash, state_hash, answers)
                 decisions.append(decide(batch, answers, state, cfg))
             except Exception as exc:  # noqa: BLE001 - report, don't lose the batch
                 message = f"{type(exc).__name__}: {exc}"
@@ -310,6 +343,8 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             usage_totals, started_at, skipped,
         )
         emit_report(cfg, report, quiet=args.quiet)
+        if lookup and cache is not None and not args.quiet:
+            print(f"cache hit {cache.hits}  miss {cache.misses}", file=sys.stderr)
         if cfg.fail_on:
             matched = [d.decision for d in decisions if d.decision in cfg.fail_on]
             if matched:
@@ -323,6 +358,8 @@ def run(cfg: Config, args: argparse.Namespace) -> int:
             return 1
         return 0
     finally:
+        if cache is not None:
+            cache.close()
         if port_forward:
             port_forward.stop()
 

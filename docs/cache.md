@@ -1,6 +1,6 @@
 # Answer cache
 
-Skip repeat Jev calls when the same judgment comes up again. Cache **answers**, then run `decide()` locally so `--confidence-floor` and the other gates still apply.
+Skip repeat Jev calls when the same judgment comes up again. Cache **answers**, then run `decide()` locally so `--confidence-floor` and the other gates still apply. Implemented in `logtriage/cache.py`.
 
 Key: `(model, schema, state)`. Each part is the judgment, not the raw HTTP body.
 
@@ -69,7 +69,7 @@ A new pattern on that source changes `state_hash` and misses. That is correct. J
 
 ## CLI
 
-- `--cache` on, `--no-cache` off. Default on once this ships.
+- Cache is on by default. `--no-cache` turns it off.
 - `--cache-db PATH`
 - `--cache-clear`
 
